@@ -2,6 +2,11 @@ name: Build iPhone IPA
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'PomodoroGrove-transfer.zip'
+      - 'PomodoroGrove-source.zip'
 
 permissions:
   contents: read
@@ -15,14 +20,18 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Verify source bundle
+      - name: Prepare source bundle
         run: |
-          test -f PomodoroGrove-source.zip || {
-            echo "PomodoroGrove-source.zip is missing from the repository root."
+          if [[ -f PomodoroGrove-transfer.zip ]]; then
+            SOURCE_ZIP='PomodoroGrove-transfer.zip'
+          elif [[ -f PomodoroGrove-source.zip ]]; then
+            SOURCE_ZIP='PomodoroGrove-source.zip'
+          else
+            echo 'Upload PomodoroGrove-transfer.zip or PomodoroGrove-source.zip to the repository root.'
             exit 1
-          }
+          fi
           mkdir -p app-source
-          unzip -q PomodoroGrove-source.zip -d app-source
+          unzip -q "$SOURCE_ZIP" -d app-source
           test -f app-source/package.json
           test -f app-source/package-lock.json
 
