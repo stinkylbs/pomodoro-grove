@@ -1,0 +1,80 @@
+name: Build iPhone IPA
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Verify source bundle
+        run: |
+          test -f PomodoroGrove-source.zip || {
+            echo "PomodoroGrove-source.zip is missing from the repository root."
+            exit 1
+          }
+          mkdir -p app-source
+          unzip -q PomodoroGrove-source.zip -d app-source
+          test -f app-source/package.json
+          test -f app-source/package-lock.json
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: app-source/package-lock.json
+
+      - name: Select Xcode 26 or newer
+        run: |
+          python3 - <<'PY'
+          import glob, plistlib, subprocess
+          candidates = []
+          for app in glob.glob('/Applications/Xcode*.app'):
+              try:
+                  with open(app + '/Contents/Info.plist', 'rb') as f:
+                      version = plistlib.load(f)['CFBundleShortVersionString']
+              except Exception:
+                  continue
+              parts = []
+              for piece in version.split('.'):
+                  if piece.isdigit():
+                      parts.append(int(piece))
+                  else:
+                      break
+              if parts and parts[0] >= 26 and 'beta' not in app.lower():
+                  candidates.append((tuple(parts), app))
+          if not candidates:
+              raise SystemExit('Xcode 26+ missing from runner image')
+          selected = max(candidates)[1]
+          subprocess.run(['sudo', 'xcode-select', '-s', selected + '/Contents/Developer'], check=True)
+          PY
+          xcodebuild -version
+
+      - name: Install dependencies
+        working-directory: app-source
+        run: npm ci
+
+      - name: Run tests
+        working-directory: app-source
+        run: npm test
+
+      - name: Build unsigned iPhone IPA
+        working-directory: app-source
+        run: npm run ios:ipa
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: PomodoroGrove-iPhone
+          path: app-source/output/PomodoroGrove-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 14
