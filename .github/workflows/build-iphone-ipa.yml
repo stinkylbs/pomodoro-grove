@@ -7,6 +7,8 @@ on:
     paths:
       - 'PomodoroGrove-transfer.zip'
       - 'PomodoroGrove-source.zip'
+      - '.github/workflows/build-iphone-ipa.yml'
+      - 'ipa-patch/**'
 
 permissions:
   contents: read
@@ -34,6 +36,14 @@ jobs:
           unzip -q "$SOURCE_ZIP" -d app-source
           test -f app-source/package.json
           test -f app-source/package-lock.json
+          echo '--- source bundle top-level ---'
+          find app-source -maxdepth 2 -type f | sort | head -120
+
+      - name: Apply IPA patch when present
+        run: |
+          if [[ -f ipa-patch/apply.sh ]]; then
+            bash ipa-patch/apply.sh app-source
+          fi
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
