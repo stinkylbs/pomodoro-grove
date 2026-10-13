@@ -1,0 +1,52 @@
+name: PomoLandLiveShell
+options:
+  deploymentTarget:
+    iOS: "16.2"
+packages:
+  CapAppSPM:
+    path: CapApp-SPM
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    TARGETED_DEVICE_FAMILY: "1"
+    SUPPORTS_MACCATALYST: NO
+
+targets:
+  App:
+    type: application
+    platform: iOS
+    deploymentTarget: "16.2"
+    sources:
+      - path: App/AppDelegate.swift
+      - path: App/SceneDelegate.swift
+      - path: Host
+      - path: Shared
+    resources:
+      - path: App/Base.lproj
+      - path: App/Assets.xcassets
+      - path: App/public
+      - path: App/capacitor.config.json
+      - path: App/config.xml
+      - path: App/grove-bell.wav
+      - path: App/PrivacyInfo.xcprivacy
+    info:
+      path: App/Info.plist
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.pomodorogrove.personal
+        PRODUCT_MODULE_NAME: App
+        INFOPLIST_FILE: App/Info.plist
+        CODE_SIGN_STYLE: Automatic
+        CURRENT_PROJECT_VERSION: 33
+        MARKETING_VERSION: 1.0
+    dependencies:
+      - package: CapAppSPM
+        product: CapApp-SPM
+
+schemes:
+  App:
+    build:
+      targets:
+        App: all
+    archive:
+      config: Release
