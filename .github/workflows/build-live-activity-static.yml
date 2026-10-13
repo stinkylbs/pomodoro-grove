@@ -72,8 +72,14 @@ jobs:
           EXT="$APP/PlugIns/PomoLandStaticLiveActivity.appex"
           test -d "$APP"
           test -d "$EXT"
+
           /usr/libexec/PlistBuddy -c 'Add :NSSupportsLiveActivities bool true' "$APP/Info.plist" 2>/dev/null || \
             /usr/libexec/PlistBuddy -c 'Set :NSSupportsLiveActivities true' "$APP/Info.plist"
+
+          /usr/libexec/PlistBuddy -c 'Add :NSExtension dict' "$EXT/Info.plist" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c 'Add :NSExtension:NSExtensionPointIdentifier string com.apple.widgetkit-extension' "$EXT/Info.plist" 2>/dev/null || \
+            /usr/libexec/PlistBuddy -c 'Set :NSExtension:NSExtensionPointIdentifier com.apple.widgetkit-extension' "$EXT/Info.plist"
+
           echo 'App NSSupportsLiveActivities:'
           /usr/libexec/PlistBuddy -c 'Print :NSSupportsLiveActivities' "$APP/Info.plist"
           echo 'Extension point:'
