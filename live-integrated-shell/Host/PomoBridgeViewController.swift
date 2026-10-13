@@ -2,7 +2,7 @@ import Capacitor
 
 @objc(PomoBridgeViewController)
 final class PomoBridgeViewController: CAPBridgeViewController {
-    override open func capacitorDidLoad() {
+    override public func capacitorDidLoad() {
         bridge?.registerPluginInstance(PomoLiveActivityPlugin())
     }
 }
