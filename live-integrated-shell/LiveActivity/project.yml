@@ -1,0 +1,37 @@
+name: PomoLandLiveActivityExtension
+options:
+  deploymentTarget:
+    iOS: "16.2"
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    TARGETED_DEVICE_FAMILY: "1"
+    SUPPORTS_MACCATALYST: NO
+
+targets:
+  PomoLandLiveActivity:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "16.2"
+    sources:
+      - path: .
+        excludes:
+          - project.yml
+          - Info.plist
+      - path: ../Shared/PomoLiveAttributes.swift
+    info:
+      path: Info.plist
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.pomodorogrove.personal.LiveActivity
+        INFOPLIST_FILE: Info.plist
+        SKIP_INSTALL: YES
+        APPLICATION_EXTENSION_API_ONLY: YES
+        CURRENT_PROJECT_VERSION: 33
+        MARKETING_VERSION: 1.0
+
+schemes:
+  PomoLandLiveActivity:
+    build:
+      targets:
+        PomoLandLiveActivity: all
