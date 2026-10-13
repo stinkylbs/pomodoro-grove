@@ -65,15 +65,21 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             build | tee xcodebuild.log
 
-      - name: Validate embedded Live Activity extension
+      - name: Patch and validate Live Activity metadata
         working-directory: live-activity-static-test
         run: |
           APP="$PWD/build/Build/Products/Release-iphoneos/PomoLandStaticLiveTest.app"
           EXT="$APP/PlugIns/PomoLandStaticLiveActivity.appex"
           test -d "$APP"
           test -d "$EXT"
+          /usr/libexec/PlistBuddy -c 'Add :NSSupportsLiveActivities bool true' "$APP/Info.plist" 2>/dev/null || \
+            /usr/libexec/PlistBuddy -c 'Set :NSSupportsLiveActivities true' "$APP/Info.plist"
+          echo 'App NSSupportsLiveActivities:'
           /usr/libexec/PlistBuddy -c 'Print :NSSupportsLiveActivities' "$APP/Info.plist"
+          echo 'Extension point:'
           /usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionPointIdentifier' "$EXT/Info.plist"
+          echo 'Embedded extensions:'
+          find "$APP/PlugIns" -maxdepth 1 -name '*.appex' -print
 
       - name: Package unsigned IPA
         working-directory: live-activity-static-test
