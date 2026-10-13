@@ -1,0 +1,55 @@
+name: PomoLandStaticLiveTest
+options:
+  deploymentTarget:
+    iOS: "16.2"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    TARGETED_DEVICE_FAMILY: "1"
+    SUPPORTS_MACCATALYST: NO
+
+targets:
+  PomoLandStaticLiveTest:
+    type: application
+    platform: iOS
+    deploymentTarget: "16.2"
+    sources:
+      - path: App
+      - path: Shared
+    info:
+      path: App/Info.plist
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.pomodorogrove.liveactivitystatictest
+        INFOPLIST_FILE: App/Info.plist
+        CODE_SIGN_STYLE: Automatic
+    dependencies:
+      - target: PomoLandStaticLiveActivity
+        embed: true
+
+  PomoLandStaticLiveActivity:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "16.2"
+    sources:
+      - path: LiveActivity
+      - path: Shared
+    info:
+      path: LiveActivity/Info.plist
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.pomodorogrove.liveactivitystatictest.LiveActivity
+        INFOPLIST_FILE: LiveActivity/Info.plist
+        SKIP_INSTALL: YES
+        APPLICATION_EXTENSION_API_ONLY: YES
+        CODE_SIGN_STYLE: Automatic
+
+schemes:
+  PomoLandStaticLiveTest:
+    build:
+      targets:
+        PomoLandStaticLiveTest: all
+        PomoLandStaticLiveActivity: all
+    archive:
+      config: Release
