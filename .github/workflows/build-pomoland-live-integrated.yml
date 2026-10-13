@@ -1,0 +1,160 @@
+name: Build PomoLand integrated Live Activity shell
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [pomoland-live-integrated]
+    paths:
+      - 'live-integrated-shell/**'
+      - '.github/workflows/build-pomoland-live-integrated.yml'
+
+jobs:
+  build:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode 26 or newer
+        run: |
+          python3 - <<'PY'
+          import glob, plistlib, subprocess
+          candidates=[]
+          for app in glob.glob('/Applications/Xcode*.app'):
+              try:
+                  with open(app + '/Contents/Info.plist','rb') as f:
+                      version=plistlib.load(f)['CFBundleShortVersionString']
+              except Exception:
+                  continue
+              parts=[]
+              for piece in version.split('.'):
+                  if piece.isdigit(): parts.append(int(piece))
+                  else: break
+              if parts and parts[0] >= 26 and 'beta' not in app.lower(): candidates.append((tuple(parts),app))
+          if not candidates: raise SystemExit('Xcode 26+ missing')
+          selected=max(candidates)[1]
+          subprocess.run(['sudo','xcode-select','-s',selected + '/Contents/Developer'],check=True)
+          PY
+          xcodebuild -version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Prepare Capacitor host shell
+        run: |
+          rm -rf live-work host-build extension-build package
+          mkdir live-work
+          ditto -x -k PomodoroGrove-transfer.zip live-work
+          cd live-work
+          npm ci
+          npm run build
+          npx cap copy ios
+          cd ..
+          mkdir -p live-work/ios/App/Host live-work/ios/App/Shared
+          cp live-integrated-shell/Host/PomoBridgeViewController.swift live-work/ios/App/Host/
+          cp live-integrated-shell/Host/PomoLiveActivityPlugin.swift live-work/ios/App/Host/
+          cp live-integrated-shell/Shared/PomoLiveAttributes.swift live-work/ios/App/Shared/
+          cp live-integrated-shell/Host/project.yml live-work/ios/App/project.yml
+          python3 - <<'PY'
+          import json, pathlib, plistlib
+          root=pathlib.Path('live-work/ios/App/App')
+          storyboard=root/'Base.lproj/Main.storyboard'
+          text=storyboard.read_text()
+          text=text.replace('customClass="CAPBridgeViewController" customModule="Capacitor"', 'customClass="PomoBridgeViewController" customModule="App"')
+          storyboard.write_text(text)
+          plist=root/'Info.plist'
+          with plist.open('rb') as f: info=plistlib.load(f)
+          info['CFBundleDisplayName']='PomoLand'
+          info['NSSupportsLiveActivities']=True
+          info['CFBundleShortVersionString']='1.0'
+          info['CFBundleVersion']='33'
+          with plist.open('wb') as f: plistlib.dump(info,f)
+          config=root/'capacitor.config.json'
+          data=json.loads(config.read_text())
+          classes=list(data.get('packageClassList',[]))
+          if 'PomoLiveActivityPlugin' not in classes: classes.append('PomoLiveActivityPlugin')
+          data['packageClassList']=classes
+          config.write_text(json.dumps(data,indent=2))
+          PY
+          cd live-work/ios/App
+          xcodegen generate --spec project.yml
+
+      - name: Build unsigned Capacitor host
+        run: |
+          set -o pipefail
+          cd live-work/ios/App
+          xcodebuild \
+            -project PomoLandLiveShell.xcodeproj \
+            -scheme App \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath "$GITHUB_WORKSPACE/host-build" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build | tee "$GITHUB_WORKSPACE/host-xcodebuild.log"
+
+      - name: Build unsigned WidgetKit extension
+        run: |
+          set -o pipefail
+          cd live-integrated-shell/LiveActivity
+          xcodegen generate --spec project.yml
+          xcodebuild \
+            -project PomoLandLiveActivityExtension.xcodeproj \
+            -scheme PomoLandLiveActivity \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath "$GITHUB_WORKSPACE/extension-build" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build | tee "$GITHUB_WORKSPACE/extension-xcodebuild.log"
+
+      - name: Assemble integrated shell
+        run: |
+          set -euo pipefail
+          APP="host-build/Build/Products/Release-iphoneos/App.app"
+          EXT="extension-build/Build/Products/Release-iphoneos/PomoLandLiveActivity.appex"
+          test -d "$APP"
+          test -d "$EXT"
+          mkdir -p "$APP/PlugIns"
+          rm -rf "$APP/PlugIns/PomoLandLiveActivity.appex"
+          ditto "$EXT" "$APP/PlugIns/PomoLandLiveActivity.appex"
+          python3 - <<'PY'
+          import plistlib, pathlib
+          app=pathlib.Path('host-build/Build/Products/Release-iphoneos/App.app')
+          with (app/'Info.plist').open('rb') as f: host=plistlib.load(f)
+          ext=app/'PlugIns/PomoLandLiveActivity.appex/Info.plist'
+          with ext.open('rb') as f: ep=plistlib.load(f)
+          assert host.get('CFBundleIdentifier')=='app.pomodorogrove.personal', host.get('CFBundleIdentifier')
+          assert host.get('NSSupportsLiveActivities') is True
+          assert ep.get('CFBundleIdentifier')=='app.pomodorogrove.personal.LiveActivity', ep.get('CFBundleIdentifier')
+          assert ep.get('NSExtension',{}).get('NSExtensionPointIdentifier')=='com.apple.widgetkit-extension'
+          print('Host bundle:',host['CFBundleIdentifier'])
+          print('Extension bundle:',ep['CFBundleIdentifier'])
+          print('Live Activities:',host['NSSupportsLiveActivities'])
+          PY
+
+      - name: Package unsigned IPA
+        run: |
+          mkdir -p package/Payload
+          ditto host-build/Build/Products/Release-iphoneos/App.app package/Payload/App.app
+          cd package
+          zip -qry ../PomoLand-build33-live-integrated-shell-unsigned.ipa Payload
+          cd ..
+          unzip -l PomoLand-build33-live-integrated-shell-unsigned.ipa | grep -E 'Payload/App.app/(App$|Info.plist|PlugIns/PomoLandLiveActivity.appex/)'
+
+      - name: Upload integrated shell IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: PomoLand-build33-live-integrated-shell-unsigned
+          path: PomoLand-build33-live-integrated-shell-unsigned.ipa
+
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: PomoLand-build33-live-integrated-shell-logs
+          path: |
+            host-xcodebuild.log
+            extension-xcodebuild.log
+          if-no-files-found: ignore
