@@ -1,7 +1,7 @@
 from pathlib import Path
-import re
+import re,sys
 
-ROOT=Path(__file__).resolve().parents[1]
+ROOT=Path(sys.argv[1]).resolve() if len(sys.argv)>1 else Path(__file__).resolve().parents[1]
 app=ROOT/'public/app.js'
 html=ROOT/'public/index.html'
 js=app.read_text()
