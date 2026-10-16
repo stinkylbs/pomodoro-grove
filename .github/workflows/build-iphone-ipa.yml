@@ -74,11 +74,21 @@ jobs:
         working-directory: source/PomoLand-TimerIntegration
         run: python3 scripts/validate-integration.py
 
-      - name: Generate Xcode project
+      - name: Generate Xcode project and restore Live Activity flag
         working-directory: source/PomoLand-TimerIntegration
         run: |
+          set -euo pipefail
           xcodegen generate
           test -d PomoLand.xcodeproj
+
+          # XcodeGen regenerates App/Info.plist from its spec and was dropping
+          # this custom host-app key. Restore it before xcodebuild processes it.
+          if /usr/libexec/PlistBuddy -c 'Print :NSSupportsLiveActivities' App/Info.plist >/dev/null 2>&1; then
+            /usr/libexec/PlistBuddy -c 'Set :NSSupportsLiveActivities true' App/Info.plist
+          else
+            /usr/libexec/PlistBuddy -c 'Add :NSSupportsLiveActivities bool true' App/Info.plist
+          fi
+          /usr/libexec/PlistBuddy -c 'Print :NSSupportsLiveActivities' App/Info.plist | grep -qi true
 
       - name: Build PomoLand and Live Activity extension
         working-directory: source/PomoLand-TimerIntegration
@@ -105,26 +115,14 @@ jobs:
           STANDALONE="$PRODUCTS/PomoLandLiveActivity.appex"
 
           find "$PWD/build/Build/Products" -maxdepth 5 -print | sort > product-tree.txt || true
-
-          test -d "$APP" || {
-            echo 'PomoLand.app was not produced.' >&2
-            cat product-tree.txt >&2
-            exit 1
-          }
+          test -d "$APP" || { echo 'PomoLand.app was not produced.' >&2; cat product-tree.txt >&2; exit 1; }
 
           if [ ! -d "$EMBEDDED" ]; then
-            test -d "$STANDALONE" || {
-              echo 'Live Activity extension was not found.' >&2
-              cat product-tree.txt >&2
-              exit 1
-            }
+            test -d "$STANDALONE" || { echo 'Live Activity extension was not found.' >&2; cat product-tree.txt >&2; exit 1; }
             mkdir -p "$APP/PlugIns"
             /usr/bin/ditto "$STANDALONE" "$EMBEDDED"
           fi
 
-          # XcodeGen builds the native shell and extension correctly, but the
-          # folder-reference web bundle is not copied by this generated project.
-          # Preserve the exact PomoLand web app inside the finished .app here.
           rm -rf "$APP/public"
           /usr/bin/ditto "$PWD/public" "$APP/public"
 
