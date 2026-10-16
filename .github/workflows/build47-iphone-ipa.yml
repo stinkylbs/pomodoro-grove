@@ -59,6 +59,7 @@ jobs:
           grep -q 'size: 72' "$ROOT/LiveActivity/PomoLandLiveActivity.swift"
           grep -q 'width: 120' "$ROOT/LiveActivity/PomoLandLiveActivity.swift"
           grep -q 'studying' "$ROOT/LiveActivity/PomoLandLiveActivity.swift"
+          grep -q 'Focus session in progress' "$ROOT/LiveActivity/PomoLandLiveActivity.swift"
 
       - name: Select Xcode 26 or newer
         run: |
@@ -154,11 +155,10 @@ jobs:
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$EMBEDDED/Info.plist")" = '47'
           /usr/libexec/PlistBuddy -c 'Print :NSSupportsLiveActivities' "$APP/Info.plist" | grep -qi true
           /usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionPointIdentifier' "$EMBEDDED/Info.plist" | grep -qx 'com.apple.widgetkit-extension'
-
           EXT_EXEC=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$EMBEDDED/Info.plist")
-          strings "$EMBEDDED/$EXT_EXEC" > live-extension-strings.txt
-          grep -q 'Focus session in progress' live-extension-strings.txt
-          grep -q 'Studying' live-extension-strings.txt
+          test -x "$EMBEDDED/$EXT_EXEC"
+          grep -q 'Focus session in progress' "$PWD/LiveActivity/PomoLandLiveActivity.swift"
+          grep -q 'case "studying"' "$PWD/LiveActivity/PomoLandLiveActivity.swift"
 
       - name: Package unsigned IPA
         working-directory: source/PomoLand-TimerIntegration
@@ -204,8 +204,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: PomoLand-Build47-diagnostics
-          path: |
-            source/PomoLand-TimerIntegration/xcodebuild.log
-            source/PomoLand-TimerIntegration/live-extension-strings.txt
+          path: source/PomoLand-TimerIntegration/xcodebuild.log
           if-no-files-found: ignore
           retention-days: 14
