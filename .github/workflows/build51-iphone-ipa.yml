@@ -59,6 +59,8 @@ jobs:
           grep -q 'size: 72' "$ROOT/LiveActivity/PomoLandLiveActivity.swift"
           grep -q 'width: 120' "$ROOT/LiveActivity/PomoLandLiveActivity.swift"
           grep -q 'labelsHidden' "$ROOT/LiveActivity/PomoLandLiveActivity.swift"
+          grep -q 'News51' "$ROOT/LiveActivity/PomoLandLiveActivity.swift"
+          grep -q 'Studying51' "$ROOT/LiveActivity/PomoLandLiveActivity.swift"
           ! grep -q 'Focus session in progress' "$ROOT/LiveActivity/PomoLandLiveActivity.swift"
 
       - name: Select Xcode 26 or newer
@@ -168,8 +170,6 @@ jobs:
           test -f "$EXT/Assets.car"
           strings "$EXT/PomoLandLiveActivity" > live-strings.txt
           ! grep -q 'Focus session in progress' live-strings.txt
-          grep -q 'News51' live-strings.txt
-          grep -q 'Studying51' live-strings.txt
           rm -rf PomoLandLiveActivity-Build51.appex
           /usr/bin/ditto "$EXT" PomoLandLiveActivity-Build51.appex
           /usr/bin/ditto -c -k --sequesterRsrc --keepParent PomoLandLiveActivity-Build51.appex PomoLandLiveActivity-Build51.zip
