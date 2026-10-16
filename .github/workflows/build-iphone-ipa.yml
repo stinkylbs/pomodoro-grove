@@ -1,4 +1,4 @@
-name: Build PomoLand Build 37 IPA
+name: Build PomoLand Build 38 IPA
 
 on:
   workflow_dispatch:
@@ -8,6 +8,7 @@ on:
       - 'PomoLand-Build36-source.part-00'
       - 'PomoLand-Build36-source.part-01'
       - 'build37-patches/**'
+      - 'build38-patches/**'
       - '.github/workflows/build-iphone-ipa.yml'
 
 permissions:
@@ -22,7 +23,7 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Restore source and apply Build 37 fixes
+      - name: Restore source and apply Build 38 fixes
         run: |
           set -euo pipefail
           test -f PomoLand-Build36-source.part-00
@@ -35,6 +36,8 @@ jobs:
           test -f "$ROOT/project.yml"
           test -f "$ROOT/scripts/validate-integration.py"
 
+          # Keep the Build 37 migration fixes that restored the original web origin,
+          # save-data recovery path, launch appearance, and native timer bridge.
           cp build37-patches/project.yml "$ROOT/project.yml"
           cp build37-patches/App/PomoViewController.swift "$ROOT/App/PomoViewController.swift"
           cp build37-patches/App/PomoNativeCoordinator.swift "$ROOT/App/PomoNativeCoordinator.swift"
@@ -43,10 +46,28 @@ jobs:
           cp build37-patches/App/Assets.xcassets/LaunchBackground.colorset/Contents.json \
              "$ROOT/App/Assets.xcassets/LaunchBackground.colorset/Contents.json"
 
+          # Build 38 mirrors the extension shape of the static test that actually
+          # rendered on the user's phone: one ordinary WidgetKit widget plus the
+          # ActivityConfiguration in the same embedded extension.
+          cp build38-patches/LiveActivity/PomoLandWidgetBundle.swift \
+             "$ROOT/LiveActivity/PomoLandWidgetBundle.swift"
+          cp build38-patches/LiveActivity/PomoLandRegistrationWidget.swift \
+             "$ROOT/LiveActivity/PomoLandRegistrationWidget.swift"
+
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('source/PomoLand-TimerIntegration/project.yml')
+          text = path.read_text()
+          text = text.replace('CURRENT_PROJECT_VERSION: 37', 'CURRENT_PROJECT_VERSION: 38')
+          path.write_text(text)
+          PY
+
           grep -q 'capacitor://localhost/' "$ROOT/App/PomoViewController.swift"
-          grep -q 'CURRENT_PROJECT_VERSION: 37' "$ROOT/project.yml"
+          grep -q 'CURRENT_PROJECT_VERSION: 38' "$ROOT/project.yml"
           grep -q "window.GroveNative.save(current)" "$ROOT/public/native-launch.js"
-          echo 'Build 37 fixes applied.'
+          grep -q 'PomoLandRegistrationWidget()' "$ROOT/LiveActivity/PomoLandWidgetBundle.swift"
+          grep -q 'StaticConfiguration' "$ROOT/LiveActivity/PomoLandRegistrationWidget.swift"
+          echo 'Build 38 fixes applied.'
 
       - name: Select Xcode 26 or newer
         run: |
@@ -149,7 +170,7 @@ jobs:
           echo "Launch color=$LAUNCH"
           echo "$LIVE" | grep -qi true
           echo "$POINT" | grep -qx 'com.apple.widgetkit-extension'
-          echo "$VERSION" | grep -qx '37'
+          echo "$VERSION" | grep -qx '38'
           echo "$LAUNCH" | grep -qx 'LaunchBackground'
 
           EXT_EXEC=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$EMBEDDED/Info.plist")
@@ -158,12 +179,19 @@ jobs:
           grep -q 'capacitor://localhost/' "$PWD/App/PomoViewController.swift"
           grep -q "window.GroveNative.save(current)" "$APP/public/native-launch.js"
 
+          # Prove the final extension binary contains both registration surfaces.
+          strings "$EMBEDDED/$EXT_EXEC" > live-extension-strings.txt
+          grep -q 'PomoLandRegistrationWidget' live-extension-strings.txt
+          grep -q 'PomoLandLiveActivity' live-extension-strings.txt
+          grep -q 'StaticConfiguration' live-extension-strings.txt
+          grep -q 'ActivityConfiguration' live-extension-strings.txt
+
       - name: Package and verify unsigned IPA
         working-directory: source/PomoLand-TimerIntegration
         run: |
           set -euo pipefail
           APP="$PWD/build/Build/Products/Release-iphoneos/PomoLand.app"
-          IPA="$PWD/PomoLand-Build37-LiveActivityFix-unsigned.ipa"
+          IPA="$PWD/PomoLand-Build38-LiveActivityRegistrationFix-unsigned.ipa"
 
           rm -rf "$PWD/Payload" "$IPA"
           mkdir -p "$PWD/Payload"
@@ -179,11 +207,11 @@ jobs:
           echo 'IPA assembled successfully:'
           ls -lh "$IPA"
 
-      - name: Upload PomoLand Build 37 IPA
+      - name: Upload PomoLand Build 38 IPA
         uses: actions/upload-artifact@v4
         with:
-          name: PomoLand-Build37-LiveActivityFix-unsigned
-          path: source/PomoLand-TimerIntegration/PomoLand-Build37-LiveActivityFix-unsigned.ipa
+          name: PomoLand-Build38-LiveActivityRegistrationFix-unsigned
+          path: source/PomoLand-TimerIntegration/PomoLand-Build38-LiveActivityRegistrationFix-unsigned.ipa
           if-no-files-found: error
           retention-days: 14
 
@@ -191,10 +219,11 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: PomoLand-Build37-diagnostics
+          name: PomoLand-Build38-diagnostics
           path: |
             source/PomoLand-TimerIntegration/xcodebuild.log
             source/PomoLand-TimerIntegration/product-tree.txt
             source/PomoLand-TimerIntegration/ipa-contents.txt
+            source/PomoLand-TimerIntegration/live-extension-strings.txt
           if-no-files-found: ignore
           retention-days: 14
