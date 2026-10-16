@@ -1,4 +1,4 @@
-name: Build PomoLand Build 36 IPA
+name: Build PomoLand Build 37 IPA
 
 on:
   workflow_dispatch:
@@ -7,6 +7,7 @@ on:
     paths:
       - 'PomoLand-Build36-source.part-00'
       - 'PomoLand-Build36-source.part-01'
+      - 'build37-patches/**'
       - '.github/workflows/build-iphone-ipa.yml'
 
 permissions:
@@ -21,7 +22,7 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Reassemble Build 36 source
+      - name: Restore source and apply Build 37 fixes
         run: |
           set -euo pipefail
           test -f PomoLand-Build36-source.part-00
@@ -30,9 +31,22 @@ jobs:
           echo '7fba9e0b666aff9dc0b0c37878f9ea42ae6677a6dd711e93d693853456c826c4  PomoLand-Build36-source.zip' | shasum -a 256 -c -
           mkdir -p source
           unzip -q PomoLand-Build36-source.zip -d source
-          test -f source/PomoLand-TimerIntegration/project.yml
-          test -f source/PomoLand-TimerIntegration/scripts/validate-integration.py
-          echo 'Build 36 source restored successfully.'
+          ROOT='source/PomoLand-TimerIntegration'
+          test -f "$ROOT/project.yml"
+          test -f "$ROOT/scripts/validate-integration.py"
+
+          cp build37-patches/project.yml "$ROOT/project.yml"
+          cp build37-patches/App/PomoViewController.swift "$ROOT/App/PomoViewController.swift"
+          cp build37-patches/App/PomoNativeCoordinator.swift "$ROOT/App/PomoNativeCoordinator.swift"
+          cp build37-patches/public/native-launch.js "$ROOT/public/native-launch.js"
+          mkdir -p "$ROOT/App/Assets.xcassets/LaunchBackground.colorset"
+          cp build37-patches/App/Assets.xcassets/LaunchBackground.colorset/Contents.json \
+             "$ROOT/App/Assets.xcassets/LaunchBackground.colorset/Contents.json"
+
+          grep -q 'capacitor://localhost/' "$ROOT/App/PomoViewController.swift"
+          grep -q 'CURRENT_PROJECT_VERSION: 37' "$ROOT/project.yml"
+          grep -q "window.GroveNative.save(current)" "$ROOT/public/native-launch.js"
+          echo 'Build 37 fixes applied.'
 
       - name: Select Xcode 26 or newer
         run: |
@@ -74,32 +88,16 @@ jobs:
         working-directory: source/PomoLand-TimerIntegration
         run: python3 scripts/validate-integration.py
 
-      - name: Generate Xcode project and restore ActivityKit metadata
+      - name: Generate and verify Xcode project
         working-directory: source/PomoLand-TimerIntegration
         run: |
           set -euo pipefail
           xcodegen generate
           test -d PomoLand.xcodeproj
-
-          # XcodeGen regenerates these plists, so restore the custom ActivityKit
-          # and WidgetKit keys before Xcode processes them.
-          if /usr/libexec/PlistBuddy -c 'Print :NSSupportsLiveActivities' App/Info.plist >/dev/null 2>&1; then
-            /usr/libexec/PlistBuddy -c 'Set :NSSupportsLiveActivities true' App/Info.plist
-          else
-            /usr/libexec/PlistBuddy -c 'Add :NSSupportsLiveActivities bool true' App/Info.plist
-          fi
-
-          if ! /usr/libexec/PlistBuddy -c 'Print :NSExtension' LiveActivity/Info.plist >/dev/null 2>&1; then
-            /usr/libexec/PlistBuddy -c 'Add :NSExtension dict' LiveActivity/Info.plist
-          fi
-          if /usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionPointIdentifier' LiveActivity/Info.plist >/dev/null 2>&1; then
-            /usr/libexec/PlistBuddy -c 'Set :NSExtension:NSExtensionPointIdentifier com.apple.widgetkit-extension' LiveActivity/Info.plist
-          else
-            /usr/libexec/PlistBuddy -c 'Add :NSExtension:NSExtensionPointIdentifier string com.apple.widgetkit-extension' LiveActivity/Info.plist
-          fi
-
           /usr/libexec/PlistBuddy -c 'Print :NSSupportsLiveActivities' App/Info.plist | grep -qi true
           /usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionPointIdentifier' LiveActivity/Info.plist | grep -qx 'com.apple.widgetkit-extension'
+          /usr/libexec/PlistBuddy -c 'Print :UILaunchScreen:UIColorName' App/Info.plist | grep -qx 'LaunchBackground'
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' App/Info.plist | grep -qx '\$(CURRENT_PROJECT_VERSION)'
 
       - name: Build PomoLand and Live Activity extension
         working-directory: source/PomoLand-TimerIntegration
@@ -116,7 +114,7 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             build | tee xcodebuild.log
 
-      - name: Assemble PomoLand bundle
+      - name: Assemble and validate PomoLand bundle
         working-directory: source/PomoLand-TimerIntegration
         run: |
           set -euo pipefail
@@ -137,31 +135,35 @@ jobs:
           rm -rf "$APP/public"
           /usr/bin/ditto "$PWD/public" "$APP/public"
 
-          test -f "$APP/public/index.html" || { echo 'public/index.html missing after copy' >&2; exit 1; }
-          test -d "$EMBEDDED" || { echo 'embedded Live Activity extension missing' >&2; exit 1; }
+          test -f "$APP/public/index.html"
+          test -f "$APP/public/native-launch.js"
+          test -d "$EMBEDDED"
 
           LIVE=$(/usr/libexec/PlistBuddy -c 'Print :NSSupportsLiveActivities' "$APP/Info.plist")
-          echo "NSSupportsLiveActivities=$LIVE"
-          echo "$LIVE" | grep -qi true
-
           POINT=$(/usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionPointIdentifier' "$EMBEDDED/Info.plist")
+          VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist")
+          LAUNCH=$(/usr/libexec/PlistBuddy -c 'Print :UILaunchScreen:UIColorName' "$APP/Info.plist")
+          echo "NSSupportsLiveActivities=$LIVE"
           echo "NSExtensionPointIdentifier=$POINT"
+          echo "CFBundleVersion=$VERSION"
+          echo "Launch color=$LAUNCH"
+          echo "$LIVE" | grep -qi true
           echo "$POINT" | grep -qx 'com.apple.widgetkit-extension'
+          echo "$VERSION" | grep -qx '37'
+          echo "$LAUNCH" | grep -qx 'LaunchBackground'
 
           EXT_EXEC=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$EMBEDDED/Info.plist")
           test -n "$EXT_EXEC"
           test -f "$EMBEDDED/$EXT_EXEC"
-
-          echo "Host app: $APP"
-          echo "Embedded extension: $EMBEDDED/$EXT_EXEC"
-          echo "Web app copied: $APP/public/index.html"
+          grep -q 'capacitor://localhost/' "$PWD/App/PomoViewController.swift"
+          grep -q "window.GroveNative.save(current)" "$APP/public/native-launch.js"
 
       - name: Package and verify unsigned IPA
         working-directory: source/PomoLand-TimerIntegration
         run: |
           set -euo pipefail
           APP="$PWD/build/Build/Products/Release-iphoneos/PomoLand.app"
-          IPA="$PWD/PomoLand-Build36-TimerIntegration-unsigned.ipa"
+          IPA="$PWD/PomoLand-Build37-LiveActivityFix-unsigned.ipa"
 
           rm -rf "$PWD/Payload" "$IPA"
           mkdir -p "$PWD/Payload"
@@ -173,15 +175,15 @@ jobs:
           /usr/bin/unzip -Z1 "$IPA" > ipa-contents.txt
           grep -q '^Payload/PomoLand.app/PlugIns/PomoLandLiveActivity.appex/' ipa-contents.txt
           grep -q '^Payload/PomoLand.app/public/index.html$' ipa-contents.txt
-
+          grep -q '^Payload/PomoLand.app/public/native-launch.js$' ipa-contents.txt
           echo 'IPA assembled successfully:'
           ls -lh "$IPA"
 
-      - name: Upload PomoLand Build 36 IPA
+      - name: Upload PomoLand Build 37 IPA
         uses: actions/upload-artifact@v4
         with:
-          name: PomoLand-Build36-TimerIntegration-unsigned
-          path: source/PomoLand-TimerIntegration/PomoLand-Build36-TimerIntegration-unsigned.ipa
+          name: PomoLand-Build37-LiveActivityFix-unsigned
+          path: source/PomoLand-TimerIntegration/PomoLand-Build37-LiveActivityFix-unsigned.ipa
           if-no-files-found: error
           retention-days: 14
 
@@ -189,7 +191,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: PomoLand-Build36-TimerIntegration-diagnostics
+          name: PomoLand-Build37-diagnostics
           path: |
             source/PomoLand-TimerIntegration/xcodebuild.log
             source/PomoLand-TimerIntegration/product-tree.txt
