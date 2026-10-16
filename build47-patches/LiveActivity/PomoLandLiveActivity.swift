@@ -123,9 +123,13 @@ struct PomoLandLiveActivity: Widget {
 
     @ViewBuilder
     private func categoryImage(_ state: PomoActivityAttributes.ContentState) -> some View {
-        Image(categoryImageName(state))
-            .resizable()
-            .scaledToFit()
+        if state.kind != "break" && state.category == "studying" {
+            PomoMushroomIcon()
+        } else {
+            Image(categoryImageName(state))
+                .resizable()
+                .scaledToFit()
+        }
     }
 
     @ViewBuilder
@@ -200,5 +204,47 @@ struct PomoLandLiveActivity: Widget {
     private func format(seconds: Int) -> String {
         let value = max(0, seconds)
         return String(format: "%02d:%02d", value / 60, value % 60)
+    }
+}
+
+@available(iOS 16.2, *)
+private struct PomoMushroomIcon: View {
+    private let outline = Color(red: 0.32, green: 0.14, blue: 0.10)
+    private let cap = Color(red: 0.64, green: 0.55, blue: 0.90)
+    private let cream = Color(red: 1.00, green: 0.91, blue: 0.72)
+
+    var body: some View {
+        GeometryReader { proxy in
+            let w = proxy.size.width
+            let h = proxy.size.height
+            ZStack {
+                RoundedRectangle(cornerRadius: min(w, h) * 0.12)
+                    .fill(.clear)
+
+                Capsule()
+                    .fill(cream)
+                    .overlay(Capsule().stroke(outline, lineWidth: max(1.5, w * 0.025)))
+                    .frame(width: w * 0.42, height: h * 0.43)
+                    .offset(y: h * 0.20)
+
+                ZStack {
+                    Ellipse()
+                        .fill(cap)
+                        .overlay(Ellipse().stroke(outline, lineWidth: max(1.8, w * 0.028)))
+                    Circle().fill(cream.opacity(0.95)).frame(width: w * 0.13).offset(x: -w * 0.20, y: -h * 0.03)
+                    Circle().fill(cream.opacity(0.95)).frame(width: w * 0.10).offset(x: w * 0.18, y: -h * 0.10)
+                    Circle().fill(cream.opacity(0.95)).frame(width: w * 0.085).offset(x: w * 0.03, y: h * 0.06)
+                }
+                .frame(width: w * 0.82, height: h * 0.50)
+                .offset(y: -h * 0.12)
+
+                HStack(spacing: w * 0.08) {
+                    Capsule().fill(outline).frame(width: w * 0.035, height: h * 0.055)
+                    Capsule().fill(outline).frame(width: w * 0.035, height: h * 0.055)
+                }
+                .offset(y: h * 0.20)
+            }
+        }
+        .aspectRatio(1, contentMode: .fit)
     }
 }
