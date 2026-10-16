@@ -1,4 +1,4 @@
-name: Build PomoLand Build 39 IPA
+name: Build PomoLand Build 40 IPA
 
 on:
   workflow_dispatch:
@@ -10,6 +10,7 @@ on:
       - 'build37-patches/**'
       - 'build38-patches/**'
       - 'build39-patches/**'
+      - 'build40-patches/**'
       - '.github/workflows/build-iphone-ipa.yml'
 
 permissions:
@@ -24,7 +25,7 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Restore source and apply Build 39 fixes
+      - name: Restore source and apply Build 40 fixes
         run: |
           set -euo pipefail
           test -f PomoLand-Build36-source.part-00
@@ -50,27 +51,33 @@ jobs:
           cp build38-patches/LiveActivity/PomoLandRegistrationWidget.swift \
              "$ROOT/LiveActivity/PomoLandRegistrationWidget.swift"
 
-          # Build 39 runtime diagnostics. These make the exact ActivityKit result
-          # visible inside PomoLand and include a direct five-minute test request.
+          # Build 39 runtime diagnostics. Keep them temporarily until the normal
+          # timer bridge is confirmed end-to-end on device.
           cp build39-patches/App/PomoViewController.swift "$ROOT/App/PomoViewController.swift"
           cp build39-patches/App/PomoLiveActivityManager.swift "$ROOT/App/PomoLiveActivityManager.swift"
           cp build39-patches/public/native-launch.js "$ROOT/public/native-launch.js"
+
+          # Build 40 lock-screen and Dynamic Island visual polish.
+          cp build40-patches/LiveActivity/PomoLandLiveActivity.swift \
+             "$ROOT/LiveActivity/PomoLandLiveActivity.swift"
 
           python3 - <<'PY'
           from pathlib import Path
           path = Path('source/PomoLand-TimerIntegration/project.yml')
           text = path.read_text()
-          text = text.replace('CURRENT_PROJECT_VERSION: 37', 'CURRENT_PROJECT_VERSION: 39')
+          text = text.replace('CURRENT_PROJECT_VERSION: 37', 'CURRENT_PROJECT_VERSION: 40')
           path.write_text(text)
           PY
 
           grep -q 'capacitor://localhost/' "$ROOT/App/PomoViewController.swift"
-          grep -q 'CURRENT_PROJECT_VERSION: 39' "$ROOT/project.yml"
+          grep -q 'CURRENT_PROJECT_VERSION: 40' "$ROOT/project.yml"
           grep -q 'liveTest' "$ROOT/App/PomoViewController.swift"
           grep -q 'startDiagnosticActivity' "$ROOT/App/PomoLiveActivityManager.swift"
           grep -q 'Test Live Activity' "$ROOT/public/native-launch.js"
           grep -q 'PomoLandRegistrationWidget()' "$ROOT/LiveActivity/PomoLandWidgetBundle.swift"
-          echo 'Build 39 diagnostic fixes applied.'
+          grep -q 'PomoFlowerMark' "$ROOT/LiveActivity/PomoLandLiveActivity.swift"
+          grep -q 'labelsHidden' "$ROOT/LiveActivity/PomoLandLiveActivity.swift"
+          echo 'Build 40 Live Activity polish applied.'
 
       - name: Select Xcode 26 or newer
         run: |
@@ -173,7 +180,7 @@ jobs:
           echo "Launch color=$LAUNCH"
           echo "$LIVE" | grep -qi true
           echo "$POINT" | grep -qx 'com.apple.widgetkit-extension'
-          echo "$VERSION" | grep -qx '39'
+          echo "$VERSION" | grep -qx '40'
           echo "$LAUNCH" | grep -qx 'LaunchBackground'
 
           EXT_EXEC=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$EMBEDDED/Info.plist")
@@ -185,6 +192,7 @@ jobs:
           strings "$EMBEDDED/$EXT_EXEC" > live-extension-strings.txt
           grep -q 'PomoLandRegistrationWidget' live-extension-strings.txt
           grep -q 'PomoLandLiveActivity' live-extension-strings.txt
+          grep -q 'PomoFlowerMark' live-extension-strings.txt
 
           APP_EXEC=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Info.plist")
           strings "$APP/$APP_EXEC" > app-binary-strings.txt
@@ -196,7 +204,7 @@ jobs:
         run: |
           set -euo pipefail
           APP="$PWD/build/Build/Products/Release-iphoneos/PomoLand.app"
-          IPA="$PWD/PomoLand-Build39-LiveActivityDiagnostic-unsigned.ipa"
+          IPA="$PWD/PomoLand-Build40-LiveActivityPolish-unsigned.ipa"
 
           rm -rf "$PWD/Payload" "$IPA"
           mkdir -p "$PWD/Payload"
@@ -212,11 +220,11 @@ jobs:
           echo 'IPA assembled successfully:'
           ls -lh "$IPA"
 
-      - name: Upload PomoLand Build 39 IPA
+      - name: Upload PomoLand Build 40 IPA
         uses: actions/upload-artifact@v4
         with:
-          name: PomoLand-Build39-LiveActivityDiagnostic-unsigned
-          path: source/PomoLand-TimerIntegration/PomoLand-Build39-LiveActivityDiagnostic-unsigned.ipa
+          name: PomoLand-Build40-LiveActivityPolish-unsigned
+          path: source/PomoLand-TimerIntegration/PomoLand-Build40-LiveActivityPolish-unsigned.ipa
           if-no-files-found: error
           retention-days: 14
 
@@ -224,7 +232,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: PomoLand-Build39-diagnostics
+          name: PomoLand-Build40-diagnostics
           path: |
             source/PomoLand-TimerIntegration/xcodebuild.log
             source/PomoLand-TimerIntegration/product-tree.txt
