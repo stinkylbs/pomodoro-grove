@@ -95,7 +95,7 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             build | tee xcodebuild.log
 
-      - name: Assemble embedded Live Activity extension
+      - name: Assemble PomoLand bundle
         working-directory: source/PomoLand-TimerIntegration
         run: |
           set -euo pipefail
@@ -122,10 +122,22 @@ jobs:
             /usr/bin/ditto "$STANDALONE" "$EMBEDDED"
           fi
 
-          test -f "$APP/public/index.html"
-          test -d "$EMBEDDED"
-          /usr/libexec/PlistBuddy -c 'Print :NSSupportsLiveActivities' "$APP/Info.plist" | grep -qi true
-          /usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionPointIdentifier' "$EMBEDDED/Info.plist" | grep -qx 'com.apple.widgetkit-extension'
+          # XcodeGen builds the native shell and extension correctly, but the
+          # folder-reference web bundle is not copied by this generated project.
+          # Preserve the exact PomoLand web app inside the finished .app here.
+          rm -rf "$APP/public"
+          /usr/bin/ditto "$PWD/public" "$APP/public"
+
+          test -f "$APP/public/index.html" || { echo 'public/index.html missing after copy' >&2; exit 1; }
+          test -d "$EMBEDDED" || { echo 'embedded Live Activity extension missing' >&2; exit 1; }
+
+          LIVE=$(/usr/libexec/PlistBuddy -c 'Print :NSSupportsLiveActivities' "$APP/Info.plist")
+          echo "NSSupportsLiveActivities=$LIVE"
+          echo "$LIVE" | grep -qi true
+
+          POINT=$(/usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionPointIdentifier' "$EMBEDDED/Info.plist")
+          echo "NSExtensionPointIdentifier=$POINT"
+          echo "$POINT" | grep -qx 'com.apple.widgetkit-extension'
 
           EXT_EXEC=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$EMBEDDED/Info.plist")
           test -n "$EXT_EXEC"
@@ -133,6 +145,7 @@ jobs:
 
           echo "Host app: $APP"
           echo "Embedded extension: $EMBEDDED/$EXT_EXEC"
+          echo "Web app copied: $APP/public/index.html"
 
       - name: Package and verify unsigned IPA
         working-directory: source/PomoLand-TimerIntegration
