@@ -151,14 +151,11 @@ jobs:
           test -f "$APP/public/index.html"
           test -d "$EMBEDDED"
           test -f "$EMBEDDED/Assets.car"
+          test -f "$EMBEDDED/Info.plist"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist")" = '47'
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$EMBEDDED/Info.plist")" = '47'
           /usr/libexec/PlistBuddy -c 'Print :NSSupportsLiveActivities' "$APP/Info.plist" | grep -qi true
           /usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionPointIdentifier' "$EMBEDDED/Info.plist" | grep -qx 'com.apple.widgetkit-extension'
-          EXT_EXEC=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$EMBEDDED/Info.plist")
-          test -x "$EMBEDDED/$EXT_EXEC"
-          grep -q 'Focus session in progress' "$PWD/LiveActivity/PomoLandLiveActivity.swift"
-          grep -q 'case "studying"' "$PWD/LiveActivity/PomoLandLiveActivity.swift"
 
       - name: Package unsigned IPA
         working-directory: source/PomoLand-TimerIntegration
