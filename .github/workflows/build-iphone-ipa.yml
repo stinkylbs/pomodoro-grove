@@ -1,14 +1,13 @@
-name: Build iPhone IPA
+name: Build PomoLand Build 36 IPA
 
 on:
   workflow_dispatch:
   push:
     branches: [main]
     paths:
-      - 'PomodoroGrove-transfer.zip'
-      - 'PomodoroGrove-source.zip'
+      - 'PomoLand-Build36-source.part-00'
+      - 'PomoLand-Build36-source.part-01'
       - '.github/workflows/build-iphone-ipa.yml'
-      - 'ipa-patch/**'
 
 permissions:
   contents: read
@@ -22,78 +21,156 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Prepare source bundle
+      - name: Reassemble Build 36 source
         run: |
-          if [[ -f PomodoroGrove-transfer.zip ]]; then
-            SOURCE_ZIP='PomodoroGrove-transfer.zip'
-          elif [[ -f PomodoroGrove-source.zip ]]; then
-            SOURCE_ZIP='PomodoroGrove-source.zip'
-          else
-            echo 'Upload PomodoroGrove-transfer.zip or PomodoroGrove-source.zip to the repository root.'
-            exit 1
-          fi
-          mkdir -p app-source
-          unzip -q "$SOURCE_ZIP" -d app-source
-          test -f app-source/package.json
-          test -f app-source/package-lock.json
-          echo '--- source bundle top-level ---'
-          find app-source -maxdepth 2 -type f | sort | head -120
-
-      - name: Apply IPA patch when present
-        run: |
-          if [[ -f ipa-patch/apply.sh ]]; then
-            bash ipa-patch/apply.sh app-source
-          fi
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-          cache-dependency-path: app-source/package-lock.json
+          set -euo pipefail
+          test -f PomoLand-Build36-source.part-00
+          test -f PomoLand-Build36-source.part-01
+          cat PomoLand-Build36-source.part-00 PomoLand-Build36-source.part-01 > PomoLand-Build36-source.zip
+          echo '7fba9e0b666aff9dc0b0c37878f9ea42ae6677a6dd711e93d693853456c826c4  PomoLand-Build36-source.zip' | shasum -a 256 -c -
+          mkdir -p source
+          unzip -q PomoLand-Build36-source.zip -d source
+          test -f source/PomoLand-TimerIntegration/project.yml
+          test -f source/PomoLand-TimerIntegration/scripts/validate-integration.py
+          echo 'Build 36 source restored successfully.'
 
       - name: Select Xcode 26 or newer
         run: |
           python3 - <<'PY'
           import glob, plistlib, subprocess
-          candidates = []
+          candidates=[]
           for app in glob.glob('/Applications/Xcode*.app'):
               try:
-                  with open(app + '/Contents/Info.plist', 'rb') as f:
-                      version = plistlib.load(f)['CFBundleShortVersionString']
+                  with open(app + '/Contents/Info.plist','rb') as f:
+                      version=plistlib.load(f)['CFBundleShortVersionString']
               except Exception:
                   continue
-              parts = []
-              for piece in version.split('.'):
-                  if piece.isdigit():
-                      parts.append(int(piece))
-                  else:
-                      break
-              if parts and parts[0] >= 26 and 'beta' not in app.lower():
-                  candidates.append((tuple(parts), app))
+              try:
+                  major=int(version.split('.')[0])
+              except Exception:
+                  continue
+              if major >= 26 and 'beta' not in app.lower():
+                  parts=[]
+                  for p in version.split('.')[:3]:
+                      digits=''.join(ch for ch in p if ch.isdigit())
+                      parts.append(int(digits or 0))
+                  candidates.append((tuple(parts), version, app))
           if not candidates:
               raise SystemExit('Xcode 26+ missing from runner image')
-          selected = max(candidates)[1]
-          subprocess.run(['sudo', 'xcode-select', '-s', selected + '/Contents/Developer'], check=True)
+          _, version, selected=sorted(candidates)[-1]
+          print(f'Selecting {selected} ({version})')
+          subprocess.run(['sudo','xcode-select','-s',selected+'/Contents/Developer'],check=True)
           PY
           xcodebuild -version
 
-      - name: Install dependencies
-        working-directory: app-source
-        run: npm ci
+      - name: Install XcodeGen
+        run: |
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            brew install xcodegen
+          fi
+          xcodegen --version
 
-      - name: Run tests
-        working-directory: app-source
-        run: npm test
+      - name: Validate timer integration source
+        working-directory: source/PomoLand-TimerIntegration
+        run: python3 scripts/validate-integration.py
 
-      - name: Build unsigned iPhone IPA
-        working-directory: app-source
-        run: npm run ios:ipa
+      - name: Generate Xcode project
+        working-directory: source/PomoLand-TimerIntegration
+        run: |
+          xcodegen generate
+          test -d PomoLand.xcodeproj
 
-      - name: Upload IPA
+      - name: Build PomoLand and Live Activity extension
+        working-directory: source/PomoLand-TimerIntegration
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project PomoLand.xcodeproj \
+            -scheme PomoLand \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath "$PWD/build" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build | tee xcodebuild.log
+
+      - name: Assemble embedded Live Activity extension
+        working-directory: source/PomoLand-TimerIntegration
+        run: |
+          set -euo pipefail
+          PRODUCTS="$PWD/build/Build/Products/Release-iphoneos"
+          APP="$PRODUCTS/PomoLand.app"
+          EMBEDDED="$APP/PlugIns/PomoLandLiveActivity.appex"
+          STANDALONE="$PRODUCTS/PomoLandLiveActivity.appex"
+
+          find "$PWD/build/Build/Products" -maxdepth 5 -print | sort > product-tree.txt || true
+
+          test -d "$APP" || {
+            echo 'PomoLand.app was not produced.' >&2
+            cat product-tree.txt >&2
+            exit 1
+          }
+
+          if [ ! -d "$EMBEDDED" ]; then
+            test -d "$STANDALONE" || {
+              echo 'Live Activity extension was not found.' >&2
+              cat product-tree.txt >&2
+              exit 1
+            }
+            mkdir -p "$APP/PlugIns"
+            /usr/bin/ditto "$STANDALONE" "$EMBEDDED"
+          fi
+
+          test -f "$APP/public/index.html"
+          test -d "$EMBEDDED"
+          /usr/libexec/PlistBuddy -c 'Print :NSSupportsLiveActivities' "$APP/Info.plist" | grep -qi true
+          /usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionPointIdentifier' "$EMBEDDED/Info.plist" | grep -qx 'com.apple.widgetkit-extension'
+
+          EXT_EXEC=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$EMBEDDED/Info.plist")
+          test -n "$EXT_EXEC"
+          test -f "$EMBEDDED/$EXT_EXEC"
+
+          echo "Host app: $APP"
+          echo "Embedded extension: $EMBEDDED/$EXT_EXEC"
+
+      - name: Package and verify unsigned IPA
+        working-directory: source/PomoLand-TimerIntegration
+        run: |
+          set -euo pipefail
+          APP="$PWD/build/Build/Products/Release-iphoneos/PomoLand.app"
+          IPA="$PWD/PomoLand-Build36-TimerIntegration-unsigned.ipa"
+
+          rm -rf "$PWD/Payload" "$IPA"
+          mkdir -p "$PWD/Payload"
+          /usr/bin/ditto "$APP" "$PWD/Payload/PomoLand.app"
+          /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$PWD/Payload" "$IPA"
+
+          test -s "$IPA"
+          /usr/bin/unzip -t "$IPA"
+          /usr/bin/unzip -Z1 "$IPA" > ipa-contents.txt
+          grep -q '^Payload/PomoLand.app/PlugIns/PomoLandLiveActivity.appex/' ipa-contents.txt
+          grep -q '^Payload/PomoLand.app/public/index.html$' ipa-contents.txt
+
+          echo 'IPA assembled successfully:'
+          ls -lh "$IPA"
+
+      - name: Upload PomoLand Build 36 IPA
         uses: actions/upload-artifact@v4
         with:
-          name: PomodoroGrove-iPhone
-          path: app-source/output/PomodoroGrove-unsigned.ipa
+          name: PomoLand-Build36-TimerIntegration-unsigned
+          path: source/PomoLand-TimerIntegration/PomoLand-Build36-TimerIntegration-unsigned.ipa
           if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: PomoLand-Build36-TimerIntegration-diagnostics
+          path: |
+            source/PomoLand-TimerIntegration/xcodebuild.log
+            source/PomoLand-TimerIntegration/product-tree.txt
+            source/PomoLand-TimerIntegration/ipa-contents.txt
+          if-no-files-found: ignore
           retention-days: 14
