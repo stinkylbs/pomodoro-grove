@@ -1,4 +1,4 @@
-name: Build PomoLand Build 40 IPA
+name: Build PomoLand Build 41 IPA
 
 on:
   workflow_dispatch:
@@ -11,6 +11,7 @@ on:
       - 'build38-patches/**'
       - 'build39-patches/**'
       - 'build40-patches/**'
+      - 'build41-patches/**'
       - '.github/workflows/build-iphone-ipa.yml'
 
 permissions:
@@ -25,7 +26,7 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Restore source and apply Build 40 fixes
+      - name: Restore source and apply Build 41 fixes
         run: |
           set -euo pipefail
           test -f PomoLand-Build36-source.part-00
@@ -38,9 +39,8 @@ jobs:
           test -f "$ROOT/project.yml"
           test -f "$ROOT/scripts/validate-integration.py"
 
-          # Build 37 app migration and native persistence fixes.
+          # Build 37 migration and launch fixes.
           cp build37-patches/project.yml "$ROOT/project.yml"
-          cp build37-patches/App/PomoNativeCoordinator.swift "$ROOT/App/PomoNativeCoordinator.swift"
           mkdir -p "$ROOT/App/Assets.xcassets/LaunchBackground.colorset"
           cp build37-patches/App/Assets.xcassets/LaunchBackground.colorset/Contents.json \
              "$ROOT/App/Assets.xcassets/LaunchBackground.colorset/Contents.json"
@@ -51,33 +51,34 @@ jobs:
           cp build38-patches/LiveActivity/PomoLandRegistrationWidget.swift \
              "$ROOT/LiveActivity/PomoLandRegistrationWidget.swift"
 
-          # Build 39 runtime diagnostics. Keep them temporarily until the normal
-          # timer bridge is confirmed end-to-end on device.
+          # Build 39 diagnostics stay available while we verify the real timer path.
           cp build39-patches/App/PomoViewController.swift "$ROOT/App/PomoViewController.swift"
-          cp build39-patches/App/PomoLiveActivityManager.swift "$ROOT/App/PomoLiveActivityManager.swift"
           cp build39-patches/public/native-launch.js "$ROOT/public/native-launch.js"
 
-          # Build 40 lock-screen and Dynamic Island visual polish.
-          cp build40-patches/LiveActivity/PomoLandLiveActivity.swift \
+          # Build 41 fixes the real Pomodoro path and refreshes the Live Activity art.
+          cp build41-patches/App/PomoNativeCoordinator.swift "$ROOT/App/PomoNativeCoordinator.swift"
+          cp build41-patches/App/PomoLiveActivityManager.swift "$ROOT/App/PomoLiveActivityManager.swift"
+          cp build41-patches/LiveActivity/PomoLandLiveActivity.swift \
              "$ROOT/LiveActivity/PomoLandLiveActivity.swift"
 
           python3 - <<'PY'
           from pathlib import Path
           path = Path('source/PomoLand-TimerIntegration/project.yml')
           text = path.read_text()
-          text = text.replace('CURRENT_PROJECT_VERSION: 37', 'CURRENT_PROJECT_VERSION: 40')
+          text = text.replace('CURRENT_PROJECT_VERSION: 37', 'CURRENT_PROJECT_VERSION: 41')
           path.write_text(text)
           PY
 
           grep -q 'capacitor://localhost/' "$ROOT/App/PomoViewController.swift"
-          grep -q 'CURRENT_PROJECT_VERSION: 40' "$ROOT/project.yml"
+          grep -q 'CURRENT_PROJECT_VERSION: 41' "$ROOT/project.yml"
           grep -q 'liveTest' "$ROOT/App/PomoViewController.swift"
           grep -q 'startDiagnosticActivity' "$ROOT/App/PomoLiveActivityManager.swift"
-          grep -q 'Test Live Activity' "$ROOT/public/native-launch.js"
+          grep -q 'let kind = (active\["kind"\] as? String) ?? "focus"' "$ROOT/App/PomoLiveActivityManager.swift"
+          grep -q 'Do not re-sync the previous state' "$ROOT/App/PomoNativeCoordinator.swift"
           grep -q 'PomoLandRegistrationWidget()' "$ROOT/LiveActivity/PomoLandWidgetBundle.swift"
-          grep -q 'PomoFlowerMark' "$ROOT/LiveActivity/PomoLandLiveActivity.swift"
-          grep -q 'labelsHidden' "$ROOT/LiveActivity/PomoLandLiveActivity.swift"
-          echo 'Build 40 Live Activity polish applied.'
+          grep -q 'Image("Flower")' "$ROOT/LiveActivity/PomoLandLiveActivity.swift"
+          test -f "$ROOT/LiveActivity/Assets.xcassets/Flower.imageset/flower.png"
+          echo 'Build 41 fixes applied.'
 
       - name: Select Xcode 26 or newer
         run: |
@@ -180,7 +181,7 @@ jobs:
           echo "Launch color=$LAUNCH"
           echo "$LIVE" | grep -qi true
           echo "$POINT" | grep -qx 'com.apple.widgetkit-extension'
-          echo "$VERSION" | grep -qx '40'
+          echo "$VERSION" | grep -qx '41'
           echo "$LAUNCH" | grep -qx 'LaunchBackground'
 
           EXT_EXEC=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$EMBEDDED/Info.plist")
@@ -192,19 +193,22 @@ jobs:
           strings "$EMBEDDED/$EXT_EXEC" > live-extension-strings.txt
           grep -q 'PomoLandRegistrationWidget' live-extension-strings.txt
           grep -q 'PomoLandLiveActivity' live-extension-strings.txt
-          grep -q 'PomoFlowerMark' live-extension-strings.txt
+          grep -q 'PomoSpriteFlower' live-extension-strings.txt
+
+          # Confirm the Flower asset catalog was compiled into the extension bundle.
+          test -f "$EMBEDDED/Assets.car"
 
           APP_EXEC=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Info.plist")
           strings "$APP/$APP_EXEC" > app-binary-strings.txt
           grep -q 'Diagnostic Activity.request' app-binary-strings.txt
-          grep -q 'ActivityAuthorizationInfo.areActivitiesEnabled' app-binary-strings.txt
+          grep -q 'Required fields: liveID, durationMs, remainingMs' app-binary-strings.txt
 
       - name: Package and verify unsigned IPA
         working-directory: source/PomoLand-TimerIntegration
         run: |
           set -euo pipefail
           APP="$PWD/build/Build/Products/Release-iphoneos/PomoLand.app"
-          IPA="$PWD/PomoLand-Build40-LiveActivityPolish-unsigned.ipa"
+          IPA="$PWD/PomoLand-Build41-RealTimerLiveActivityFix-unsigned.ipa"
 
           rm -rf "$PWD/Payload" "$IPA"
           mkdir -p "$PWD/Payload"
@@ -220,11 +224,11 @@ jobs:
           echo 'IPA assembled successfully:'
           ls -lh "$IPA"
 
-      - name: Upload PomoLand Build 40 IPA
+      - name: Upload PomoLand Build 41 IPA
         uses: actions/upload-artifact@v4
         with:
-          name: PomoLand-Build40-LiveActivityPolish-unsigned
-          path: source/PomoLand-TimerIntegration/PomoLand-Build40-LiveActivityPolish-unsigned.ipa
+          name: PomoLand-Build41-RealTimerLiveActivityFix-unsigned
+          path: source/PomoLand-TimerIntegration/PomoLand-Build41-RealTimerLiveActivityFix-unsigned.ipa
           if-no-files-found: error
           retention-days: 14
 
@@ -232,7 +236,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: PomoLand-Build40-diagnostics
+          name: PomoLand-Build41-diagnostics
           path: |
             source/PomoLand-TimerIntegration/xcodebuild.log
             source/PomoLand-TimerIntegration/product-tree.txt
