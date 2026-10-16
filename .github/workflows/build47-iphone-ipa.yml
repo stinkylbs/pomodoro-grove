@@ -1,0 +1,211 @@
+name: Build PomoLand Build 47 IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/build47-iphone-ipa.yml'
+      - 'build47-patches/LiveActivity/PomoLandLiveActivity.swift'
+      - 'build41-patches/**'
+      - 'build39-patches/**'
+      - 'build38-patches/**'
+      - 'build37-patches/**'
+      - 'PomoLand-Build36-source.part-00'
+      - 'PomoLand-Build36-source.part-01'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 35
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Restore native source and apply Build 47 patches
+        run: |
+          set -euo pipefail
+          cat PomoLand-Build36-source.part-00 PomoLand-Build36-source.part-01 > PomoLand-Build36-source.zip
+          echo '7fba9e0b666aff9dc0b0c37878f9ea42ae6677a6dd711e93d693853456c826c4  PomoLand-Build36-source.zip' | shasum -a 256 -c -
+          rm -rf source
+          mkdir -p source
+          unzip -q PomoLand-Build36-source.zip -d source
+          ROOT='source/PomoLand-TimerIntegration'
+
+          cp build37-patches/project.yml "$ROOT/project.yml"
+          mkdir -p "$ROOT/App/Assets.xcassets/LaunchBackground.colorset"
+          cp build37-patches/App/Assets.xcassets/LaunchBackground.colorset/Contents.json "$ROOT/App/Assets.xcassets/LaunchBackground.colorset/Contents.json"
+          cp build38-patches/LiveActivity/PomoLandWidgetBundle.swift "$ROOT/LiveActivity/PomoLandWidgetBundle.swift"
+          cp build38-patches/LiveActivity/PomoLandRegistrationWidget.swift "$ROOT/LiveActivity/PomoLandRegistrationWidget.swift"
+          cp build39-patches/App/PomoViewController.swift "$ROOT/App/PomoViewController.swift"
+          cp build39-patches/public/native-launch.js "$ROOT/public/native-launch.js"
+          cp build41-patches/App/PomoNativeCoordinator.swift "$ROOT/App/PomoNativeCoordinator.swift"
+          cp build41-patches/App/PomoLiveActivityManager.swift "$ROOT/App/PomoLiveActivityManager.swift"
+          cp build47-patches/LiveActivity/PomoLandLiveActivity.swift "$ROOT/LiveActivity/PomoLandLiveActivity.swift"
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p=Path('source/PomoLand-TimerIntegration/project.yml')
+          s=p.read_text()
+          s=re.sub(r'CURRENT_PROJECT_VERSION:\s*\d+', 'CURRENT_PROJECT_VERSION: 47', s)
+          p.write_text(s)
+          PY
+
+          grep -q 'CURRENT_PROJECT_VERSION: 47' "$ROOT/project.yml"
+          grep -q 'size: 72' "$ROOT/LiveActivity/PomoLandLiveActivity.swift"
+          grep -q 'width: 120' "$ROOT/LiveActivity/PomoLandLiveActivity.swift"
+          grep -q 'studying' "$ROOT/LiveActivity/PomoLandLiveActivity.swift"
+
+      - name: Select Xcode 26 or newer
+        run: |
+          python3 - <<'PY'
+          import glob, plistlib, subprocess
+          c=[]
+          for app in glob.glob('/Applications/Xcode*.app'):
+              try:
+                  with open(app+'/Contents/Info.plist','rb') as f:
+                      v=plistlib.load(f)['CFBundleShortVersionString']
+                  if int(v.split('.')[0]) >= 26 and 'beta' not in app.lower(): c.append((v,app))
+              except Exception: pass
+          if not c: raise SystemExit('Xcode 26+ missing')
+          v,app=sorted(c)[-1]
+          print('Selecting',app,v)
+          subprocess.run(['sudo','xcode-select','-s',app+'/Contents/Developer'],check=True)
+          PY
+          xcodebuild -version
+
+      - name: Install build tools
+        run: |
+          if ! command -v xcodegen >/dev/null 2>&1; then brew install xcodegen; fi
+          if ! command -v magick >/dev/null 2>&1; then brew install imagemagick; fi
+
+      - name: Build category Live Activity image assets
+        run: |
+          set -euo pipefail
+          ROOT='source/PomoLand-TimerIntegration'
+          CAT="$ROOT/LiveActivity/Assets.xcassets"
+          mkdir -p "$CAT"
+
+          make_set() {
+            NAME="$1"
+            SOURCE="$2"
+            SET="$CAT/$NAME.imageset"
+            mkdir -p "$SET"
+            magick "$ROOT/public/$SOURCE" -trim -resize '108x108>' -gravity center -background none -extent 120x120 "$SET/$NAME.png"
+            cat > "$SET/Contents.json" <<JSON
+          {
+            "images" : [
+              { "filename" : "$NAME.png", "idiom" : "universal", "scale" : "1x" },
+              { "idiom" : "universal", "scale" : "2x" },
+              { "idiom" : "universal", "scale" : "3x" }
+            ],
+            "info" : { "author" : "xcode", "version" : 1 }
+          }
+          JSON
+            test -s "$SET/$NAME.png"
+          }
+
+          make_set News 'assets/41a9c5e5da1391b7.webp'
+          make_set Reading 'assets/fc6f719e23cd1b62.webp'
+          make_set Philosophy 'assets/a698ed4b6a71ec7c.webp'
+          make_set Vocabulary 'assets/a269122e8eaecd59.webp'
+          file "$CAT"/*.imageset/*.png
+
+      - name: Generate and build native app
+        working-directory: source/PomoLand-TimerIntegration
+        run: |
+          set -euo pipefail
+          python3 scripts/validate-integration.py
+          xcodegen generate
+          xcodebuild \
+            -project PomoLand.xcodeproj \
+            -scheme PomoLand \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath "$PWD/build" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build | tee xcodebuild.log
+
+      - name: Assemble and verify bundle
+        working-directory: source/PomoLand-TimerIntegration
+        run: |
+          set -euo pipefail
+          PRODUCTS="$PWD/build/Build/Products/Release-iphoneos"
+          APP="$PRODUCTS/PomoLand.app"
+          EMBEDDED="$APP/PlugIns/PomoLandLiveActivity.appex"
+          STANDALONE="$PRODUCTS/PomoLandLiveActivity.appex"
+          test -d "$APP"
+          if [ ! -d "$EMBEDDED" ]; then
+            test -d "$STANDALONE"
+            mkdir -p "$APP/PlugIns"
+            /usr/bin/ditto "$STANDALONE" "$EMBEDDED"
+          fi
+
+          test -f "$APP/public/index.html"
+          test -d "$EMBEDDED"
+          test -f "$EMBEDDED/Assets.car"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist")" = '47'
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$EMBEDDED/Info.plist")" = '47'
+          /usr/libexec/PlistBuddy -c 'Print :NSSupportsLiveActivities' "$APP/Info.plist" | grep -qi true
+          /usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionPointIdentifier' "$EMBEDDED/Info.plist" | grep -qx 'com.apple.widgetkit-extension'
+
+          EXT_EXEC=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$EMBEDDED/Info.plist")
+          strings "$EMBEDDED/$EXT_EXEC" > live-extension-strings.txt
+          grep -q 'Focus session in progress' live-extension-strings.txt
+          grep -q 'Studying' live-extension-strings.txt
+
+      - name: Package unsigned IPA
+        working-directory: source/PomoLand-TimerIntegration
+        run: |
+          set -euo pipefail
+          APP="$PWD/build/Build/Products/Release-iphoneos/PomoLand.app"
+          IPA="$PWD/PomoLand-Build47-Native-unsigned.ipa"
+          rm -rf Payload "$IPA"
+          mkdir Payload
+          /usr/bin/ditto "$APP" Payload/PomoLand.app
+          /usr/bin/ditto -c -k --sequesterRsrc --keepParent Payload "$IPA"
+          unzip -t "$IPA"
+          ls -lh "$IPA"
+
+      - name: Publish native Build 47 IPA to repository
+        working-directory: source/PomoLand-TimerIntegration
+        run: |
+          set -euo pipefail
+          DEST="$GITHUB_WORKSPACE/build47-output/PomoLand-Build47-Native-unsigned.ipa"
+          mkdir -p "$(dirname "$DEST")"
+          cp PomoLand-Build47-Native-unsigned.ipa "$DEST"
+          cd "$GITHUB_WORKSPACE"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add build47-output/PomoLand-Build47-Native-unsigned.ipa
+          if git diff --cached --quiet; then
+            echo 'Native IPA output unchanged.'
+          else
+            git commit -m 'Build 47 native IPA artifact'
+            git push
+          fi
+
+      - name: Upload Build 47 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PomoLand-Build47-Native-unsigned
+          path: source/PomoLand-TimerIntegration/PomoLand-Build47-Native-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: PomoLand-Build47-diagnostics
+          path: |
+            source/PomoLand-TimerIntegration/xcodebuild.log
+            source/PomoLand-TimerIntegration/live-extension-strings.txt
+          if-no-files-found: ignore
+          retention-days: 14
