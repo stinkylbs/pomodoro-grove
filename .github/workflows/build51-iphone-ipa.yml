@@ -1,4 +1,4 @@
-name: Build PomoLand Build 51 IPA
+name: Build PomoLand Build 51 Live Activity
 
 on:
   workflow_dispatch:
@@ -15,25 +15,24 @@ on:
       - 'PomoLand-Build36-source.part-01'
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
     runs-on: macos-26
-    timeout-minutes: 40
+    timeout-minutes: 35
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Restore native source and Build 47 web base
+      - name: Restore native source and apply native patches
         run: |
           set -euo pipefail
           cat PomoLand-Build36-source.part-00 PomoLand-Build36-source.part-01 > PomoLand-Build36-source.zip
           echo '7fba9e0b666aff9dc0b0c37878f9ea42ae6677a6dd711e93d693853456c826c4  PomoLand-Build36-source.zip' | shasum -a 256 -c -
-          rm -rf source base47
-          mkdir -p source base47
+          rm -rf source
+          mkdir -p source
           unzip -q PomoLand-Build36-source.zip -d source
-          unzip -q build47-output/PomoLand-Build47-Native-unsigned.ipa -d base47
           ROOT='source/PomoLand-TimerIntegration'
 
           cp build37-patches/project.yml "$ROOT/project.yml"
@@ -55,13 +54,12 @@ jobs:
           s=re.sub(r'CURRENT_PROJECT_VERSION:\s*\d+', 'CURRENT_PROJECT_VERSION: 51', s)
           p.write_text(s)
           PY
+
           grep -q 'CURRENT_PROJECT_VERSION: 51' "$ROOT/project.yml"
           grep -q 'size: 72' "$ROOT/LiveActivity/PomoLandLiveActivity.swift"
           grep -q 'width: 120' "$ROOT/LiveActivity/PomoLandLiveActivity.swift"
           grep -q 'labelsHidden' "$ROOT/LiveActivity/PomoLandLiveActivity.swift"
           ! grep -q 'Focus session in progress' "$ROOT/LiveActivity/PomoLandLiveActivity.swift"
-          test -f base47/Payload/PomoLand.app/public/app.js
-          grep -q 'function renderShop(){' base47/Payload/PomoLand.app/public/app.js
 
       - name: Select Xcode 26 or newer
         run: |
@@ -72,8 +70,10 @@ jobs:
               try:
                   with open(app+'/Contents/Info.plist','rb') as f:
                       v=plistlib.load(f)['CFBundleShortVersionString']
-                  if int(v.split('.')[0]) >= 26 and 'beta' not in app.lower(): candidates.append((v,app))
-              except Exception: pass
+                  if int(v.split('.')[0]) >= 26 and 'beta' not in app.lower():
+                      candidates.append((v,app))
+              except Exception:
+                  pass
           if not candidates: raise SystemExit('Xcode 26+ missing')
           v,app=sorted(candidates)[-1]
           print('Selecting',app,v)
@@ -85,13 +85,11 @@ jobs:
         run: |
           if ! command -v xcodegen >/dev/null 2>&1; then brew install xcodegen; fi
           if ! command -v magick >/dev/null 2>&1; then brew install imagemagick; fi
-          python3 -m pip install --quiet pillow
 
-      - name: Build fresh modern Live Activity assets
+      - name: Create fresh Live Activity asset catalog
         run: |
           set -euo pipefail
           ROOT='source/PomoLand-TimerIntegration'
-          BASE='base47/Payload/PomoLand.app'
           CAT="$ROOT/LiveActivity/Assets.xcassets"
           mkdir -p "$CAT"
 
@@ -101,7 +99,7 @@ jobs:
             SET="$CAT/$NAME.imageset"
             rm -rf "$SET"
             mkdir -p "$SET"
-            magick "$BASE/public/$SOURCE" -trim -resize '214x214>' -gravity center -background none -extent 240x240 "$SET/$NAME.png"
+            magick "$ROOT/public/$SOURCE" -trim -resize '214x214>' -gravity center -background none -extent 240x240 "$SET/$NAME.png"
             cat > "$SET/Contents.json" <<JSON
           {
             "images" : [
@@ -119,38 +117,27 @@ jobs:
           make_set Philosophy51 'assets/a698ed4b6a71ec7c.webp'
           make_set Vocabulary51 'assets/a269122e8eaecd59.webp'
 
-          APP_JS="$BASE/public/app.js" CAT_DIR="$CAT" python3 - <<'PY'
-          import os,re,base64,io,json
-          from pathlib import Path
-          from PIL import Image,ImageDraw,ImageOps
-          s=Path(os.environ['APP_JS']).read_text()
-          def decode(pattern):
-              m=re.search(pattern,s)
-              if not m: raise SystemExit('Mushroom source asset not found: '+pattern)
-              return Image.open(io.BytesIO(base64.b64decode(m.group(1)))).convert('RGBA')
-          shell=decode(r'"shells":\{"Classic":"data:image/png;base64,([^"]+)')
-          cap=decode(r'"caps":\{"Classic":"data:image/png;base64,([^"]+)')
-          face=decode(r'"faces":\{[^}]*?"Happy":"data:image/png;base64,([^"]+)')
-          gray=ImageOps.grayscale(cap)
-          tinted=ImageOps.colorize(gray, black=(103,35,35), white=(255,177,177)).convert('RGBA')
-          tinted.putalpha(cap.getchannel('A'))
-          spots=Image.new('RGBA',(260,260),(0,0,0,0)); d=ImageDraw.Draw(spots)
-          for x,y,r in [(96,82,18),(154,67,16),(168,115,14)]: d.ellipse((x-r,y-r,x+r,y+r),fill=(255,242,207,255))
-          layer=Image.alpha_composite(tinted,spots); layer.putalpha(cap.getchannel('A'))
-          out=Image.alpha_composite(layer,shell)
-          w=70; h=round(w*face.height/face.width); face=face.resize((w,h),Image.Resampling.LANCZOS)
-          out.alpha_composite(face,(130-w//2,200-h//2))
-          crop=out.crop(out.getbbox()); crop.thumbnail((214,214),Image.Resampling.LANCZOS)
-          canvas=Image.new('RGBA',(240,240),(0,0,0,0)); canvas.alpha_composite(crop,((240-crop.width)//2,(240-crop.height)//2))
-          setdir=Path(os.environ['CAT_DIR'])/'Studying51.imageset'; setdir.mkdir(parents=True,exist_ok=True)
-          canvas.save(setdir/'Studying51.png')
-          (setdir/'Contents.json').write_text(json.dumps({'images':[{'filename':'Studying51.png','idiom':'universal','scale':'1x'},{'idiom':'universal','scale':'2x'},{'idiom':'universal','scale':'3x'}],'info':{'author':'xcode','version':1}},indent=2))
-          PY
+          SET="$CAT/Studying51.imageset"
+          rm -rf "$SET"
+          mkdir -p "$SET"
+          cp build51-patches/assets/Studying51.png "$SET/Studying51.png"
+          cat > "$SET/Contents.json" <<'JSON'
+          {
+            "images" : [
+              { "filename" : "Studying51.png", "idiom" : "universal", "scale" : "1x" },
+              { "idiom" : "universal", "scale" : "2x" },
+              { "idiom" : "universal", "scale" : "3x" }
+            ],
+            "info" : { "author" : "xcode", "version" : 1 }
+          }
+          JSON
 
-          for n in News51 Reading51 Philosophy51 Vocabulary51 Studying51; do test -s "$CAT/$n.imageset/$n.png"; done
+          for n in News51 Reading51 Philosophy51 Vocabulary51 Studying51; do
+            test -s "$CAT/$n.imageset/$n.png"
+          done
           file "$CAT"/*51.imageset/*.png
 
-      - name: Generate and build native app
+      - name: Generate Xcode project and compile
         working-directory: source/PomoLand-TimerIntegration
         run: |
           set -euo pipefail
@@ -167,80 +154,32 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             build | tee xcodebuild.log
 
-      - name: Overlay known-good Build 47 web app and apply Build 50 changes
-        run: |
-          set -euo pipefail
-          APP="$GITHUB_WORKSPACE/source/PomoLand-TimerIntegration/build/Build/Products/Release-iphoneos/PomoLand.app"
-          BASE="$GITHUB_WORKSPACE/base47/Payload/PomoLand.app"
-          rm -rf "$APP/public"
-          /usr/bin/ditto "$BASE/public" "$APP/public"
-          python3 build51-patches/scripts/apply_build50_web.py "$APP"
-          node --check "$APP/public/app.js"
-          grep -q 'function renderShop(){' "$APP/public/app.js"
-          grep -q 'function setView' "$APP/public/app.js"
-          grep -q "plant:'Elder Trees'" "$APP/public/app.js"
-          grep -q 'id="build50-safe-layout"' "$APP/public/index.html"
-
-      - name: Assemble and verify Build 51 bundle
+      - name: Verify and package extension
         working-directory: source/PomoLand-TimerIntegration
         run: |
           set -euo pipefail
           PRODUCTS="$PWD/build/Build/Products/Release-iphoneos"
-          APP="$PRODUCTS/PomoLand.app"
-          EMBEDDED="$APP/PlugIns/PomoLandLiveActivity.appex"
-          STANDALONE="$PRODUCTS/PomoLandLiveActivity.appex"
-          test -d "$APP"
-          if [ ! -d "$EMBEDDED" ]; then
-            test -d "$STANDALONE"
-            mkdir -p "$APP/PlugIns"
-            /usr/bin/ditto "$STANDALONE" "$EMBEDDED"
+          EXT="$PRODUCTS/PomoLandLiveActivity.appex"
+          if [ ! -d "$EXT" ]; then
+            EXT="$PRODUCTS/PomoLand.app/PlugIns/PomoLandLiveActivity.appex"
           fi
-          test -f "$APP/public/index.html"
-          test -f "$APP/public/app.js"
-          test -f "$EMBEDDED/Assets.car"
-          strings "$EMBEDDED/PomoLandLiveActivity" > live-strings.txt
+          test -d "$EXT"
+          test -f "$EXT/PomoLandLiveActivity"
+          test -f "$EXT/Assets.car"
+          strings "$EXT/PomoLandLiveActivity" > live-strings.txt
           ! grep -q 'Focus session in progress' live-strings.txt
           grep -q 'News51' live-strings.txt
           grep -q 'Studying51' live-strings.txt
-          grep -q 'renderShop' "$APP/public/app.js"
-          echo 'Build 51 verification passed.'
+          rm -rf PomoLandLiveActivity-Build51.appex
+          /usr/bin/ditto "$EXT" PomoLandLiveActivity-Build51.appex
+          /usr/bin/ditto -c -k --sequesterRsrc --keepParent PomoLandLiveActivity-Build51.appex PomoLandLiveActivity-Build51.zip
+          unzip -t PomoLandLiveActivity-Build51.zip
 
-      - name: Package unsigned IPA
-        working-directory: source/PomoLand-TimerIntegration
-        run: |
-          set -euo pipefail
-          APP="$PWD/build/Build/Products/Release-iphoneos/PomoLand.app"
-          IPA="$PWD/PomoLand-Build51-LiveActivity-Fix-unsigned.ipa"
-          rm -rf Payload "$IPA"
-          mkdir Payload
-          /usr/bin/ditto "$APP" Payload/PomoLand.app
-          /usr/bin/ditto -c -k --sequesterRsrc --keepParent Payload "$IPA"
-          unzip -t "$IPA"
-          ls -lh "$IPA"
-
-      - name: Publish Build 51 IPA to repository
-        working-directory: source/PomoLand-TimerIntegration
-        run: |
-          set -euo pipefail
-          DEST="$GITHUB_WORKSPACE/build51-output/PomoLand-Build51-LiveActivity-Fix-unsigned.ipa"
-          mkdir -p "$(dirname "$DEST")"
-          cp PomoLand-Build51-LiveActivity-Fix-unsigned.ipa "$DEST"
-          cd "$GITHUB_WORKSPACE"
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add build51-output/PomoLand-Build51-LiveActivity-Fix-unsigned.ipa
-          if git diff --cached --quiet; then
-            echo 'Build 51 IPA output unchanged.'
-          else
-            git commit -m 'Build 51 Live Activity IPA artifact'
-            git push
-          fi
-
-      - name: Upload Build 51 artifact
+      - name: Upload Build 51 Live Activity extension
         uses: actions/upload-artifact@v4
         with:
-          name: PomoLand-Build51-LiveActivity-Fix-unsigned
-          path: source/PomoLand-TimerIntegration/PomoLand-Build51-LiveActivity-Fix-unsigned.ipa
+          name: PomoLandLiveActivity-Build51
+          path: source/PomoLand-TimerIntegration/PomoLandLiveActivity-Build51.zip
           if-no-files-found: error
           retention-days: 14
 
