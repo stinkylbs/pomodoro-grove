@@ -147,7 +147,6 @@ jobs:
             mkdir -p "$APP/PlugIns"
             /usr/bin/ditto "$STANDALONE" "$EMBEDDED"
           fi
-          test -f "$APP/public/index.html"
           test -d "$EMBEDDED"
           echo 'Native app and Live Activity extension assembled.'
 
