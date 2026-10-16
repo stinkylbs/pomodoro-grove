@@ -1,0 +1,97 @@
+name: PomoLand
+options:
+  bundleIdPrefix: app.pomodorogrove
+  deploymentTarget:
+    iOS: "16.2"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    SUPPORTS_MACCATALYST: NO
+
+targets:
+  PomoLand:
+    type: application
+    platform: iOS
+    deploymentTarget: "16.2"
+    sources:
+      - path: App
+      - path: Shared
+    resources:
+      - path: public
+        type: folder
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: PomoLand
+        CFBundleName: PomoLand
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        LSRequiresIPhoneOS: true
+        NSSupportsLiveActivities: true
+        UIApplicationSupportsIndirectInputEvents: true
+        UIUserInterfaceStyle: Light
+        UIRequiresFullScreen: true
+        UILaunchScreen:
+          UIColorName: LaunchBackground
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        CFBundleURLTypes:
+          - CFBundleURLName: app.pomodorogrove.personal
+            CFBundleURLSchemes:
+              - pomoland
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.pomodorogrove.personal
+        PRODUCT_NAME: PomoLand
+        INFOPLIST_FILE: App/Info.plist
+        TARGETED_DEVICE_FAMILY: "1"
+        CODE_SIGN_STYLE: Automatic
+        CURRENT_PROJECT_VERSION: 37
+        MARKETING_VERSION: 1.0
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    dependencies:
+      - target: PomoLandLiveActivity
+        embed: true
+
+  PomoLandLiveActivity:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "16.2"
+    sources:
+      - path: LiveActivity
+      - path: Shared
+    resources:
+      - path: LiveActivity/Assets.xcassets
+    info:
+      path: LiveActivity/Info.plist
+      properties:
+        CFBundleDisplayName: PomoLand Live Activity
+        CFBundleName: PomoLandLiveActivity
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.pomodorogrove.personal.LiveActivity
+        PRODUCT_NAME: PomoLandLiveActivity
+        INFOPLIST_FILE: LiveActivity/Info.plist
+        TARGETED_DEVICE_FAMILY: "1"
+        SKIP_INSTALL: YES
+        APPLICATION_EXTENSION_API_ONLY: YES
+        CODE_SIGN_STYLE: Automatic
+        CURRENT_PROJECT_VERSION: 37
+        MARKETING_VERSION: 1.0
+
+schemes:
+  PomoLand:
+    build:
+      targets:
+        PomoLand: all
+        PomoLandLiveActivity: all
+    run:
+      config: Debug
+    archive:
+      config: Release
