@@ -7,7 +7,6 @@ on:
     paths:
       - '.github/workflows/build52-live-activity.yml'
       - 'build52-patches/**'
-      - 'build51-patches/assets/Studying51.png'
       - 'build41-patches/**'
       - 'build39-patches/**'
       - 'build38-patches/**'
@@ -93,6 +92,7 @@ jobs:
         run: |
           if ! command -v xcodegen >/dev/null 2>&1; then brew install xcodegen; fi
           if ! command -v magick >/dev/null 2>&1; then brew install imagemagick; fi
+          python3 -m pip install --quiet pillow
 
       - name: Create raw widget PNG resources
         run: |
@@ -112,7 +112,46 @@ jobs:
           make_png Reading52 'assets/fc6f719e23cd1b62.webp'
           make_png Philosophy52 'assets/a698ed4b6a71ec7c.webp'
           make_png Vocabulary52 'assets/a269122e8eaecd59.webp'
-          cp build51-patches/assets/Studying51.png "$OUT/Studying52.png"
+
+          APP_JS="$ROOT/public/app.js" OUT="$OUT" python3 - <<'PY'
+          import os,re,base64,io
+          from pathlib import Path
+          from PIL import Image,ImageDraw,ImageOps
+
+          s=Path(os.environ['APP_JS']).read_text()
+          def decode(pattern):
+              m=re.search(pattern,s)
+              if not m:
+                  raise SystemExit('Mushroom source asset not found: '+pattern)
+              return Image.open(io.BytesIO(base64.b64decode(m.group(1)))).convert('RGBA')
+
+          shell=decode(r'"shells":\{"Classic":"data:image/png;base64,([^"]+)')
+          cap=decode(r'"caps":\{"Classic":"data:image/png;base64,([^"]+)')
+          face=decode(r'"faces":\{[^}]*?"Happy":"data:image/png;base64,([^"]+)')
+
+          gray=ImageOps.grayscale(cap)
+          tinted=ImageOps.colorize(gray, black=(105,35,35), white=(247,155,150)).convert('RGBA')
+          tinted.putalpha(cap.getchannel('A'))
+
+          spots=Image.new('RGBA',(260,260),(0,0,0,0))
+          d=ImageDraw.Draw(spots)
+          for x,y,r in [(92,83,18),(151,67,17),(170,116,15)]:
+              d.ellipse((x-r,y-r,x+r,y+r),fill=(255,242,207,255))
+          layer=Image.alpha_composite(tinted,spots)
+          layer.putalpha(cap.getchannel('A'))
+          out=Image.alpha_composite(layer,shell)
+
+          w=72
+          h=round(w*face.height/face.width)
+          face=face.resize((w,h),Image.Resampling.LANCZOS)
+          out.alpha_composite(face,(130-w//2,200-h//2))
+
+          crop=out.crop(out.getbbox())
+          crop.thumbnail((320,320),Image.Resampling.LANCZOS)
+          canvas=Image.new('RGBA',(360,360),(0,0,0,0))
+          canvas.alpha_composite(crop,((360-crop.width)//2,(360-crop.height)//2))
+          canvas.save(Path(os.environ['OUT'])/'Studying52.png',format='PNG',optimize=False)
+          PY
 
           for n in News52 Reading52 Philosophy52 Vocabulary52 Studying52; do
             test -s "$OUT/$n.png"
