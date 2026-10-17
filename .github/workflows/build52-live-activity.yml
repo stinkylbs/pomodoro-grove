@@ -112,7 +112,7 @@ jobs:
           make_png Reading52 'assets/fc6f719e23cd1b62.webp'
           make_png Philosophy52 'assets/a698ed4b6a71ec7c.webp'
           make_png Vocabulary52 'assets/a269122e8eaecd59.webp'
-          magick build51-patches/assets/Studying51.png -trim -resize '320x320>' -gravity center -background none -extent 360x360 "$OUT/Studying52.png"
+          cp build51-patches/assets/Studying51.png "$OUT/Studying52.png"
 
           for n in News52 Reading52 Philosophy52 Vocabulary52 Studying52; do
             test -s "$OUT/$n.png"
