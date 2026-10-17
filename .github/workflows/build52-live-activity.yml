@@ -1,0 +1,177 @@
+name: Build PomoLand Build 52 Live Activity
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/build52-live-activity.yml'
+      - 'build52-patches/**'
+      - 'build51-patches/assets/Studying51.png'
+      - 'build41-patches/**'
+      - 'build39-patches/**'
+      - 'build38-patches/**'
+      - 'build37-patches/**'
+      - 'PomoLand-Build36-source.part-00'
+      - 'PomoLand-Build36-source.part-01'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 35
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Restore native source and apply Build 52 patches
+        run: |
+          set -euo pipefail
+          cat PomoLand-Build36-source.part-00 PomoLand-Build36-source.part-01 > PomoLand-Build36-source.zip
+          echo '7fba9e0b666aff9dc0b0c37878f9ea42ae6677a6dd711e93d693853456c826c4  PomoLand-Build36-source.zip' | shasum -a 256 -c -
+          rm -rf source
+          mkdir -p source
+          unzip -q PomoLand-Build36-source.zip -d source
+          ROOT='source/PomoLand-TimerIntegration'
+
+          cp build37-patches/project.yml "$ROOT/project.yml"
+          mkdir -p "$ROOT/App/Assets.xcassets/LaunchBackground.colorset"
+          cp build37-patches/App/Assets.xcassets/LaunchBackground.colorset/Contents.json "$ROOT/App/Assets.xcassets/LaunchBackground.colorset/Contents.json"
+          cp build38-patches/LiveActivity/PomoLandWidgetBundle.swift "$ROOT/LiveActivity/PomoLandWidgetBundle.swift"
+          cp build38-patches/LiveActivity/PomoLandRegistrationWidget.swift "$ROOT/LiveActivity/PomoLandRegistrationWidget.swift"
+          cp build39-patches/App/PomoViewController.swift "$ROOT/App/PomoViewController.swift"
+          cp build39-patches/public/native-launch.js "$ROOT/public/native-launch.js"
+          cp build41-patches/App/PomoNativeCoordinator.swift "$ROOT/App/PomoNativeCoordinator.swift"
+          cp build41-patches/App/PomoLiveActivityManager.swift "$ROOT/App/PomoLiveActivityManager.swift"
+          cp build52-patches/LiveActivity/PomoLandLiveActivity.swift "$ROOT/LiveActivity/PomoLandLiveActivity.swift"
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p=Path('source/PomoLand-TimerIntegration/project.yml')
+          s=p.read_text()
+          s=re.sub(r'CURRENT_PROJECT_VERSION:\s*\d+', 'CURRENT_PROJECT_VERSION: 52', s)
+          needle='    resources:\n      - path: LiveActivity/Assets.xcassets\n'
+          replacement='    resources:\n      - path: LiveActivity/Assets.xcassets\n      - path: LiveActivity/WidgetAssets\n'
+          if replacement not in s:
+              if needle not in s:
+                  raise SystemExit('Could not locate LiveActivity resources block')
+              s=s.replace(needle,replacement,1)
+          p.write_text(s)
+          PY
+
+          grep -q 'CURRENT_PROJECT_VERSION: 52' "$ROOT/project.yml"
+          grep -q 'LiveActivity/WidgetAssets' "$ROOT/project.yml"
+          grep -q 'Bundle.main.url' "$ROOT/LiveActivity/PomoLandLiveActivity.swift"
+          grep -q 'News52' "$ROOT/LiveActivity/PomoLandLiveActivity.swift"
+          grep -q 'Studying52' "$ROOT/LiveActivity/PomoLandLiveActivity.swift"
+          ! grep -q 'Focus session in progress' "$ROOT/LiveActivity/PomoLandLiveActivity.swift"
+
+      - name: Select Xcode 26 or newer
+        run: |
+          python3 - <<'PY'
+          import glob, plistlib, subprocess
+          candidates=[]
+          for app in glob.glob('/Applications/Xcode*.app'):
+              try:
+                  with open(app+'/Contents/Info.plist','rb') as f:
+                      v=plistlib.load(f)['CFBundleShortVersionString']
+                  if int(v.split('.')[0]) >= 26 and 'beta' not in app.lower():
+                      candidates.append((v,app))
+              except Exception:
+                  pass
+          if not candidates: raise SystemExit('Xcode 26+ missing')
+          v,app=sorted(candidates)[-1]
+          print('Selecting',app,v)
+          subprocess.run(['sudo','xcode-select','-s',app+'/Contents/Developer'],check=True)
+          PY
+          xcodebuild -version
+
+      - name: Install build tools
+        run: |
+          if ! command -v xcodegen >/dev/null 2>&1; then brew install xcodegen; fi
+          if ! command -v magick >/dev/null 2>&1; then brew install imagemagick; fi
+
+      - name: Create raw widget PNG resources
+        run: |
+          set -euo pipefail
+          ROOT='source/PomoLand-TimerIntegration'
+          OUT="$ROOT/LiveActivity/WidgetAssets"
+          rm -rf "$OUT"
+          mkdir -p "$OUT"
+
+          make_png() {
+            NAME="$1"
+            SOURCE="$2"
+            magick "$ROOT/public/$SOURCE" -trim -resize '320x320>' -gravity center -background none -extent 360x360 "$OUT/$NAME.png"
+          }
+
+          make_png News52 'assets/41a9c5e5da1391b7.webp'
+          make_png Reading52 'assets/fc6f719e23cd1b62.webp'
+          make_png Philosophy52 'assets/a698ed4b6a71ec7c.webp'
+          make_png Vocabulary52 'assets/a269122e8eaecd59.webp'
+          magick build51-patches/assets/Studying51.png -trim -resize '320x320>' -gravity center -background none -extent 360x360 "$OUT/Studying52.png"
+
+          for n in News52 Reading52 Philosophy52 Vocabulary52 Studying52; do
+            test -s "$OUT/$n.png"
+          done
+          file "$OUT"/*.png
+
+      - name: Generate Xcode project and compile
+        working-directory: source/PomoLand-TimerIntegration
+        run: |
+          set -euo pipefail
+          python3 scripts/validate-integration.py
+          xcodegen generate
+          xcodebuild \
+            -project PomoLand.xcodeproj \
+            -scheme PomoLand \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath "$PWD/build" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build | tee xcodebuild.log
+
+      - name: Verify raw resources and package extension
+        working-directory: source/PomoLand-TimerIntegration
+        run: |
+          set -euo pipefail
+          PRODUCTS="$PWD/build/Build/Products/Release-iphoneos"
+          EXT="$PRODUCTS/PomoLandLiveActivity.appex"
+          if [ ! -d "$EXT" ]; then
+            EXT="$PRODUCTS/PomoLand.app/PlugIns/PomoLandLiveActivity.appex"
+          fi
+          test -d "$EXT"
+          test -f "$EXT/PomoLandLiveActivity"
+
+          for n in News52 Reading52 Philosophy52 Vocabulary52 Studying52; do
+            found=$(find "$EXT" -type f -name "$n.png" -print -quit)
+            test -n "$found"
+            echo "$n -> $found"
+          done
+
+          rm -rf PomoLandLiveActivity-Build52.appex PomoLandLiveActivity-Build52.zip
+          /usr/bin/ditto "$EXT" PomoLandLiveActivity-Build52.appex
+          /usr/bin/ditto -c -k --sequesterRsrc --keepParent PomoLandLiveActivity-Build52.appex PomoLandLiveActivity-Build52.zip
+          unzip -t PomoLandLiveActivity-Build52.zip
+
+      - name: Upload Build 52 Live Activity extension
+        uses: actions/upload-artifact@v4
+        with:
+          name: PomoLandLiveActivity-Build52
+          path: source/PomoLand-TimerIntegration/PomoLandLiveActivity-Build52.zip
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: PomoLand-Build52-diagnostics
+          path: source/PomoLand-TimerIntegration/xcodebuild.log
+          if-no-files-found: ignore
+          retention-days: 14
