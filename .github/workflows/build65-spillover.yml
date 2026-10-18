@@ -1,10 +1,10 @@
-name: Build PomoLand Build 65 Pause Resume
+name: Build PomoLand Build 65 Spillover
 on:
   workflow_dispatch:
   push:
     branches: [main]
     paths:
-      - '.github/workflows/build64-pause-prestige.yml'
+      - '.github/workflows/build65-spillover.yml'
       - 'build65-patches/**'
 permissions:
   contents: read
